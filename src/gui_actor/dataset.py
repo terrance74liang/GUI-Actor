@@ -91,11 +91,15 @@ def get_token_index(image_processor, image, point_x, point_y):
         point_x: the x coordinate of the point, in [0, 1].
         point_y: the y coordinate of the point, in [0, 1].
     """
-    if len(image) != 1:
+    if isinstance(image,list) and len(image) != 1:
         raise ValueError(f"Expected 1 image, got {len(image)}")
     
     # get the original image size and the resized image size
-    image = image[0]
+    try:
+        image = image[0]
+    except TypeError:
+        image = image
+
     w, h = image.size
     px, py = w * point_x, h * point_y
     # rank0_print(f"px: {px}, py: {py}")
@@ -155,13 +159,65 @@ def get_multi_patch_labels(image_processor, image, bbox_gt):
 
     return binary_mask
 
-def token_index_to_coordinates(image_processor, visual_token_index, image_width, image_height):
+def get_center_and_extremities(image_processor, image, bbox_gt):
+    if len(image) != 1:
+        raise ValueError(f"Expected 1 image, got {len(image)}")
+
+    # Get the original image size and the resized image size
+    image = image[0]
+    w, h = image.size
+
+    bbox_gt = [bbox_gt[0]*w, bbox_gt[1]*h, bbox_gt[2]*w, bbox_gt[3]*h]
+
+    x_min, y_min, x_max, y_max = bbox_gt
+    x_min = max(0, x_min)
+    y_min = max(0, y_min)
+    x_max = min(w, x_max)
+    y_max = min(h, y_max)
+
+    center_x, center_y = (x_min + ((x_max-x_min)//2),y_min + ((y_max - y_min)//2))
+
+
+    merge_patch_size = image_processor.patch_size * image_processor.merge_size
+    assert w % merge_patch_size == 0 and h % merge_patch_size == 0, f"Image size {w}x{h} is not divisible by merge_patch_size {merge_patch_size}"
+    grid_h, grid_w = h // merge_patch_size, w // merge_patch_size
+    total_patches = torch.arange(grid_h*grid_w)
+
+
+    x_index = lambda index : index % (w // merge_patch_size)
+    y_index = lambda index : index // (w // merge_patch_size)
+
+    xmax = torch.vmap(x_index)(total_patches) * merge_patch_size + merge_patch_size 
+    xmin = torch.vmap(x_index)(total_patches) * merge_patch_size 
+    ymax = torch.vmap(y_index)(total_patches) * merge_patch_size + merge_patch_size 
+    ymin = torch.vmap(y_index)(total_patches) * merge_patch_size  
+
+    sigma_x = w / 10.0
+    sigma_y = h / 10.0
+
+    exp_x_max = (xmax - center_x) / sigma_x  
+    exp_y_max = (ymax - center_y) / sigma_y   
+    exp_x_min = (xmin - center_x) / sigma_x  
+    exp_y_min = (ymin - center_y) / sigma_y  
+
+    gaussian_x = torch.exp(-0.5 * (exp_x_max**2 - exp_x_min**2))
+    gaussian_y = torch.exp(-0.5 * (exp_y_max**2 - exp_y_min**2))
+
+    image_gaussian = gaussian_x*gaussian_y
+
+    gaussian = image_gaussian / (image_gaussian.sum() + 1e-8)
+
+    return gaussian
+
+
+def token_index_to_coordinates(image_processor, visual_token_index, image_width):
     merge_patch_size = image_processor.patch_size * image_processor.merge_size
     x_index = visual_token_index % (image_width // merge_patch_size)
     y_index = visual_token_index // (image_width // merge_patch_size)
+    # gives the middle of it 
     px = x_index * merge_patch_size + merge_patch_size / 2
     py = y_index * merge_patch_size + merge_patch_size / 2
-    return px, py
+    return px, py, merge_patch_size / 2
 
 class LazySupervisedDataset(Dataset):
     def __init__(
@@ -337,7 +393,8 @@ class LazySupervisedDataset(Dataset):
                 "visual_token_indices_of_coordinates": data_dict["visual_token_indices_of_coordinates"][0],
                 "pixel_values": data_dict["pixel_values"],
                 "image_grid_thw": data_dict["image_grid_thw"],
-                "multi_patch_labels": data_dict["multi_patch_labels"][0],   # add multi_patch_labels                
+                "multi_patch_labels": data_dict["multi_patch_labels"][0],
+                'patch_indexes':data_dict["patch_indexes"]   # add multi_patch_labels                
             }
 
         data_dict["id"] = item_id
@@ -380,6 +437,7 @@ class LazySupervisedDataset(Dataset):
         coordinates = []
         visual_token_indices_of_coordinates = []
         multi_patch_labels = []
+        patch_indexes = []
         
         image_list = []
         image_index = 0
@@ -460,6 +518,11 @@ class LazySupervisedDataset(Dataset):
 
                         # get the visual token indices of the coordinates
                         coordinates.extend(coord)
+
+                        patch_index = get_center_and_extremities(processor.image_processor,image_list, conv['bbox_gt'])
+
+                        patch_indexes.append(patch_index)
+
                         for (point_x, point_y) in coord:
                             visual_token_index = get_token_index(
                                 processor.image_processor,
@@ -482,7 +545,9 @@ class LazySupervisedDataset(Dataset):
                                     image_list,
                                     conv["bbox_gt"]
                                 )  
+                                
                                 multi_patch_labels.append(patch_mask)
+
 
                 templated_conv = tokenizer.apply_chat_template(
                     conversation=[conv],
@@ -508,6 +573,7 @@ class LazySupervisedDataset(Dataset):
         targets = torch.tensor([target], dtype=torch.long)
         visual_token_indices_of_coordinates = torch.tensor([visual_token_indices_of_coordinates], dtype=torch.long) if len(visual_token_indices_of_coordinates) > 0 else [None]
         coordinates = [coordinates] if len(coordinates) > 0 else [None]
+        patch_indexes = torch.stack(patch_indexes,dim=0)
 
         # process multi_patch_labels
         if len(multi_patch_labels) > 0:
@@ -529,5 +595,6 @@ class LazySupervisedDataset(Dataset):
         data_dict["coordinates"] = coordinates
         data_dict["visual_token_indices_of_coordinates"] = visual_token_indices_of_coordinates
         data_dict["multi_patch_labels"] = multi_patch_labels
-        
+        data_dict['patch_indexes'] = patch_indexes
+
         return data_dict

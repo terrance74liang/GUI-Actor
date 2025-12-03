@@ -13,11 +13,11 @@ from transformers import (
     AutoProcessor,
 )
 
-from gui_actor.dataset import LazySupervisedDataset
-from gui_actor.trainer import AGUVISTrainer, rank0_print, safe_save_model_for_hf_trainer
-from gui_actor.utils import dump_args_to_json
+from src.gui_actor.dataset import LazySupervisedDataset
+from src.gui_actor.trainer import AGUVISTrainer, rank0_print, safe_save_model_for_hf_trainer
+from src.gui_actor.utils import dump_args_to_json
 
-from gui_actor.constants import (
+from src.gui_actor.constants import (
     IGNORE_INDEX,
     ADDITIONAL_SPECIAL_TOKENS,
     DEFAULT_POINTER_START_TOKEN,
@@ -25,8 +25,8 @@ from gui_actor.constants import (
     DEFAULT_POINTER_PAD_TOKEN,
 )
 
-from gui_actor.modeling import Qwen2VLForConditionalGenerationWithPointer
-from gui_actor.modeling_qwen25vl import Qwen2_5_VLForConditionalGenerationWithPointer
+from src.gui_actor.modeling import Qwen2VLForConditionalGenerationWithPointer
+from src.gui_actor.modeling_qwen25vl import Qwen2_5_VLForConditionalGenerationWithPointer
 
 apply_liger_kernel_to_qwen2_vl()
 
@@ -199,8 +199,10 @@ class DataCollatorForSupervisedDataset:
         if "multi_patch_labels" in instances[0]:
             batch["multi_patch_labels"] = [instance["multi_patch_labels"] for instance in instances]
 
+        if "patch_indexes" in instances[0]:
+            batch["patch_indexes"] = [instance["patch_indexes"] for instance in instances]
+        
         return batch
-
 
 def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
                                 processor: transformers.ProcessorMixin,

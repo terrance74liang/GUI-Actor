@@ -1,11 +1,11 @@
 #!/bin/bash
 # model_type: qwen2vl or qwen25vl
 model_type="qwen25vl"
-llm_model="Qwen/Qwen2.5-VL-3B-Instruct"
+llm_model="/home/teliang/scratch/UI-R1/Qwen2.5-VL-3B-Instruct"
 output_dir="./checkpoints/${model_type}_warmup"
 
 # === Training Command ===
-torchrun --nproc_per_node=4 train.py \
+torchrun --nproc_per_node=1 train.py \
   --deepspeed ./scripts/zero3.json \
   --data_path data/data_config.yaml \
   --image_folder "" \
@@ -39,4 +39,5 @@ torchrun --nproc_per_node=4 train.py \
   --unfreeze_new_tokens True \
   --unfreeze_visual False \
   --pointer_loss_weight 1.0 \
-  --lm_loss_weight -1.0
+  --lm_loss_weight -1.0 \
+  --max_steps 5

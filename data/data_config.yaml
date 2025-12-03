@@ -1,19 +1,19 @@
 datasets:
-  - json_path: /mnt/datasets/Uground/uground_aguvis_bbox_filter.json
-    images_folder: /mnt/datasets/Uground/images/
+  # - json_path: /home/teliang/scratch/gui_actor_data/uground_bbox.json
+  #   images_folder: /home/teliang/scratch/gui_actor_data/uground/Uground/images
+  #   sampling_strategy: "all"
+  - json_path: /home/teliang/scratch/gui_actor_data/guienv_bbox.json
+    images_folder: /home/teliang/scratch/gui_actor_data/guienv/guienvs/images
     sampling_strategy: "all"
-  - json_path: /mnt/datasets/GUIEnv/guienv_aguvis_bbox.json
-    images_folder: /mnt/datasets/GUIEnv/guienvs/images/
+  - json_path: /home/teliang/scratch/gui_actor_data/guiact_bbox.json
+    images_folder: /home/teliang/scratch/gui_actor_data/guiact/GUIAct/web_imgs
     sampling_strategy: "all"
-  - json_path: /mnt/datasets/GUIAct/guiact_aguvis_bbox.json
-    images_folder: /mnt/datasets/GUIAct/web_imgs/
+  - json_path: /home/teliang/scratch/gui_actor_data/amex_bbox.json
+    images_folder: /home/teliang/scratch/gui_actor_data/amex/screenshots
     sampling_strategy: "all"
-  - json_path: /mnt/datasets/AMEX/amex_aguvis_bbox.json
-    images_folder: /mnt/datasets/AMEX/screenshots/
+  - json_path: /home/teliang/scratch/gui_actor_data/androidcontrol_bbox.json
+    images_folder: /home/teliang/scratch/gui_actor_data/android_control/AndroidControl/tfrecord/images
     sampling_strategy: "all"
-  - json_path: /mnt/datasets/AndroidControl/androidcontrol_aguvis_bbox.json
-    images_folder: /mnt/datasets/AndroidControl/tfrecord/images/
-    sampling_strategy: "all"
-  - json_path: /mnt/datasets/Wave-UI/wave_ui_aguvis_bbox_fixed.json
-    images_folder: /mnt/datasets/Wave-UI/images_fixed/
+  - json_path: /home/teliang/scratch/gui_actor_data/wave_ui_bbox.json
+    images_folder: /home/teliang/scratch/gui_actor_data/wave/Wave-UI/images_fixed
     sampling_strategy: "all"

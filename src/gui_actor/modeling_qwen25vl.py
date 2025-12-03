@@ -95,6 +95,7 @@ class VisionHead_MultiPatch(nn.Module):
         attn_weights = F.softmax(patch_logits, dim=-1)
 
         loss = None
+        supression_loss = None
         if (labels is not None) and (not do_single_patch):
             epsilon = 1e-8
             labels_float = labels.float()
@@ -106,10 +107,12 @@ class VisionHead_MultiPatch(nn.Module):
             # Use KL divergence as loss
             loss = F.kl_div(pred_log_probs, target_dist, reduction='batchmean')
 
-        if do_single_patch and (labels is not None):
-            loss = F.cross_entropy(attn_scores, labels)
+            supression_loss = attn_weights[labels == 1]
 
-        return attn_weights, loss
+        # if do_single_patch and (labels is not None):
+        #     loss = F.cross_entropy(attn_scores, labels)
+
+        return attn_weights, loss, supression_loss
 
 
 class Qwen2_5_VLForConditionalGenerationWithPointer(Qwen2_5_VLForConditionalGeneration):
@@ -147,8 +150,9 @@ class Qwen2_5_VLForConditionalGenerationWithPointer(Qwen2_5_VLForConditionalGene
                 multi_patch_labels: Optional[torch.Tensor] = None, # shape: list [(n_target, n_visual), ...]; binary mask of patches in bbox
                 if_multi_patch: bool = True,
                 coordinates: Optional[List[Tuple[float, float]]] = None,
+                patch_indexes : Optional[dict] = None,
                 verbose: bool = False) -> Union[Tuple, QwenVLwithVisionHeadOutputWithPast]:
-
+        
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -267,9 +271,12 @@ class Qwen2_5_VLForConditionalGenerationWithPointer(Qwen2_5_VLForConditionalGene
         if visual_token_indices_of_coordinates is not None:
             batch_size = input_ids.shape[0]
             pointer_losses = []
+            supression_losses = []
+            gaussian_losses = []
             
             # Process each sample individually because the number of visual and target tokens may vary.
             for i in range(batch_size):
+
                 dummy_target = False
 
                 # Get the token ids and corresponding hidden states for sample i.
@@ -327,22 +334,36 @@ class Qwen2_5_VLForConditionalGenerationWithPointer(Qwen2_5_VLForConditionalGene
                         raise ValueError(f"Sample {i} has mismatched target counts: {sample_labels.shape[0]} labels but found {target_indices.shape[0]} target tokens")
 
                     # Process using VisionHead_MultiPatch
-                    attn_scores, loss_v = self.multi_patch_pointer_head(
+                    attn_scores, loss_v, sup_loss = self.multi_patch_pointer_head(
                         visual_embeds,
                         target_hidden,
                         labels=sample_labels
                     )
+
+                    
                     
                 else:
                     # Deprecated branch - single patch mode is no longer used
                     # Run the action head to compute the attention (from target tokens to visual tokens) and its loss.
-                    attn_scores, loss_v = self.pointer_head(visual_embeds, target_hidden, labels=gt)
+                    attn_scores, loss_v, sup_loss = self.pointer_head(visual_embeds, target_hidden, labels=gt)
                 
+                gaussian_scores = torch.sum((patch_indexes[i]*torch.log(patch_indexes[i]/attn_scores)), dim=1).mean()
+
                 pointer_scores.append(attn_scores.detach().cpu())
 
+                supression_scores = torch.sum(sup_loss, dim=1).mean()
+
                 pointer_losses.append(loss_v * 0.0 if dummy_target else loss_v)
+
+                supression_losses.append(supression_scores.detach().cpu())
+
+                gaussian_losses.append(gaussian_scores.detach().cpu())
             
             pointer_loss = torch.stack(pointer_losses).mean()
+
+            supression_loss = torch.stack(supression_losses).mean()
+
+            gaussian_loss = torch.stack(gaussian_losses).mean()
 
         # Combine the LM loss and vision loss using the provided loss weights.
         
@@ -351,7 +372,7 @@ class Qwen2_5_VLForConditionalGenerationWithPointer(Qwen2_5_VLForConditionalGene
         elif pointer_loss is None:
             total_loss = lm_loss
         else:
-            total_loss = self.lm_loss_weight * lm_loss + self.pointer_loss_weight * pointer_loss
+            total_loss = self.lm_loss_weight * lm_loss + self.pointer_loss_weight * pointer_loss + supression_loss + gaussian_loss
 
         if return_dict:
             return QwenVLwithVisionHeadOutputWithPast(

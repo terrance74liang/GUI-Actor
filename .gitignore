@@ -253,3 +253,7 @@ data/data_config_amlt.yaml
 launch_2.py
 analysis/
 amlt/
+*.err
+*.out
+*.pt
+
